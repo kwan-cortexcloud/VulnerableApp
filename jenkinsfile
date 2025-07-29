@@ -63,17 +63,12 @@ pipeline {
                     
                     steps {
                         script {
-                            sh '''
-                                echo "Installing SemGrep..."
-                                apt update
-                                apt install -y python3 python3-venv python3-pip
-                                python3 -m pip install semgrep
-                                echo "semgrep --version"
-                                semgrep --version
-                                echo "Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif"
-                            '''
                             try {
-                                sh "semgrep scan --sarif --sarif-output=./semgrep.sarif"
+                                sh '''
+                                docker pull semgrep/semgrep && \\
+                                docker run --rm -v ${Pipeline.Workspace}:/home/code\\
+                                semgrep/semgrep semgrep scan /home/code --sarif --sarif-output=./semgrep.sarif
+                                '''
                             } catch (err) {
                                 sh "echo 'Semgrep scan completed with findings or errors. Report available at semgrep.sarif'"
                                 throw err // Re-throw to fail the pipeline
