@@ -8,38 +8,40 @@ pipeline {
         CORTEX_CLI_VERSION = '0.13.0'
     }
 
-    stages('Security Scans (Parallel)'){
-        parallel {
-            stage('cortexcloud Scan') {
-                steps {
-                    script {
-                        withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), 
-                                        string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {                  
-                            sh '''
-                                TOKEN_RESPONSE=$(curl --location '${CORTEX_API_URL}/public_api/v1/unified-cli/image/token' \
-                                    --header 'Authorization: ${CORTEX_API_KEY}' \
-                                    --header 'x-xdr-auth-id: ${CORTEX_API_KEY_ID}' \
-                                    --header 'Content-Type: application/json' \
-                                    --data '{}')
-                                TEMP_TOKEN=$(echo ${TOKEN_RESPONSE} | jq -r '.token')
-                                echo 'TEMP_TOKEN=${TEMP_TOKEN}'
-                                docker pull distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION}
-                                docker tag distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION} cortexcli:${CORTEX_CLI_VERSION}
-                                docker images
-                            '''
-                            try {
-                                sh "docker run --rm -v ${Pipeline.Workspace}:/home/code cortexcli:${CORTEX_CLI_VERSION} \
-                                    --api-base-url ${CORTEX_API_URL} --api-key ${CORTEX_API_KEY} --api-key-id ${CORTEX_API_KEY_ID} \
-                                    code scan --directory /home/code --repo-id kwan/VulnerableApp \
-                                    --branch cicd-test \
-                                    --source JENKINS \
-                                    --create-repo-if-missing \
-                                    --upload-mode no-upload \
-                                    --output junitxml --output-file-path ccscan-report.xml "
-                            } catch (err) {
-                                // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
-                                junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
-                                throw err 
+    stages{
+        stage('Security Scans (Parallel)'){
+            parallel {
+                stage('cortexcloud Scan') {
+                    steps {
+                        script {
+                            withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), 
+                                            string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {                  
+                                sh '''
+                                    TOKEN_RESPONSE=$(curl --location '${CORTEX_API_URL}/public_api/v1/unified-cli/image/token' \
+                                        --header 'Authorization: ${CORTEX_API_KEY}' \
+                                        --header 'x-xdr-auth-id: ${CORTEX_API_KEY_ID}' \
+                                        --header 'Content-Type: application/json' \
+                                        --data '{}')
+                                    TEMP_TOKEN=$(echo ${TOKEN_RESPONSE} | jq -r '.token')
+                                    echo 'TEMP_TOKEN=${TEMP_TOKEN}'
+                                    docker pull distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION}
+                                    docker tag distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION} cortexcli:${CORTEX_CLI_VERSION}
+                                    docker images
+                                '''
+                                try {
+                                    sh "docker run --rm -v ${Pipeline.Workspace}:/home/code cortexcli:${CORTEX_CLI_VERSION} \
+                                        --api-base-url ${CORTEX_API_URL} --api-key ${CORTEX_API_KEY} --api-key-id ${CORTEX_API_KEY_ID} \
+                                        code scan --directory /home/code --repo-id kwan/VulnerableApp \
+                                        --branch cicd-test \
+                                        --source JENKINS \
+                                        --create-repo-if-missing \
+                                        --upload-mode no-upload \
+                                        --output junitxml --output-file-path ccscan-report.xml "
+                                } catch (err) {
+                                    // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
+                                    junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
+                                    throw err 
+                                }
                             }
                         }
                     }
@@ -56,60 +58,47 @@ pipeline {
                         }
                     }
                 }
-            }
 
-            stage('Semgrep Scan (Code) and Upload to Cortex Cloud') {
-                agent {
-                    docker {
-                        image 'semgrep/semgrep:latest'
-                        // args '--entrypoint=\'\'' // Uncomment if you face entrypoint issues
-                    }
-                }
-                steps {
-                    script {
-                        // semgrep scan                        
-                        sh "echo 'Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif'"
-                        try {
-                            sh "semgrep scan --sarif --sarif-output=./semgrep.sarif"
-                        } catch (err) {
-                            sh "echo 'Semgrep scan completed with findings or errors. Report available at semgrep.sarif'"
-                            throw err // Re-throw to fail the pipeline
+                stage('Semgrep Scan (Code) and Upload to Cortex Cloud') {
+                    agent {
+                        docker {
+                            image 'semgrep/semgrep:latest'
+                            // args '--entrypoint=\'\'' // Uncomment if you face entrypoint issues
                         }
                     }
-                    // upload scan findings to cortexcloud sarif collector
-                    script {
-                        sh "echo 'uploading sarif generated by semgrep to cortex cloud ...'"
-                        withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key', variable: 'CORTEX_API_KEY'), 
-                                        string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
-                            sh "curl -ifS --location '${CORTEX_API_URL}/public_api/appsec/v1/collectors/687fd143d939b5726fda3c0a?repository_id=d27795e2864609c861acbc1f61c4bf19803edced85dca151823d602418481df3&branch=cicd-test' \
-                                --header 'x-crtx-auth-id: ${CORTEX_API_KEY_ID}' \
-                                --header 'Authorization: ${CORTEX_API_KEY}' \
-                                --header 'Content-Type: application/json' \
-                                --data-binary ./semgrep.sarif"
+                    steps {
+                        script {
+                            // semgrep scan                        
+                            sh "echo 'Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif'"
+                            try {
+                                sh "semgrep scan --sarif --sarif-output=./semgrep.sarif"
+                            } catch (err) {
+                                sh "echo 'Semgrep scan completed with findings or errors. Report available at semgrep.sarif'"
+                                throw err // Re-throw to fail the pipeline
+                            }
+                        }
+                        // upload scan findings to cortexcloud sarif collector
+                        script {
+                            sh "echo 'uploading sarif generated by semgrep to cortex cloud ...'"
+                            withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key', variable: 'CORTEX_API_KEY'), 
+                                            string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
+                                sh "curl -ifS --location '${CORTEX_API_URL}/public_api/appsec/v1/collectors/687fd143d939b5726fda3c0a?repository_id=d27795e2864609c861acbc1f61c4bf19803edced85dca151823d602418481df3&branch=cicd-test' \
+                                    --header 'x-crtx-auth-id: ${CORTEX_API_KEY_ID}' \
+                                    --header 'Authorization: ${CORTEX_API_KEY}' \
+                                    --header 'Content-Type: application/json' \
+                                    --data-binary ./semgrep.sarif"
+                            }
                         }
                     }                
-        
+            
                     post {
                         always {
                             // Archive Semgrep SARIF report as a build artifact
                             archiveArtifacts artifacts: "./semgrep.sarif", allowEmptyArchive: true
                         }
-                    }
-                }
-            }            
-        }
-    }
-
-    post {
-        always {
-            // Clean up workspace after build
-            cleanWs()
-        }
-        success {
-            echo 'cortexcloud scan completed successfully!'
-        }
-        failure {
-            echo 'cortexcloud scan found issues. Please review the report.'
+                    }                    
+                }            
+            }
         }
     }
 }
