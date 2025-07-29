@@ -60,16 +60,16 @@ pipeline {
                 }
 
                 stage('Semgrep Scan (Code) and Upload to Cortex Cloud') {
-                    agent {
-                        docker {
-                            image 'semgrep/semgrep:latest'
-                            // args '--entrypoint=\'\'' // Uncomment if you face entrypoint issues
-                        }
-                    }
+                    
                     steps {
                         script {
-                            // semgrep scan                        
-                            sh "echo 'Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif'"
+                            sh '''
+                                echo "Installing SemGrep..."
+                                python3 -m pip install semgrep
+                                echo "semgrep --version"
+                                semgrep --version
+                                echo "Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif"
+                            '''
                             try {
                                 sh "semgrep scan --sarif --sarif-output=./semgrep.sarif"
                             } catch (err) {
