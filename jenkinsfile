@@ -11,8 +11,7 @@ pipeline {
         CORTEX_CLI_VERSION = '0.13.0'
     }
 
-    stage('Security Scans (Parallel)') {
-                // The 'parallel' block runs the nested stages concurrently.
+    stages('Security Scans (Parallel)'){
         parallel {
             stage('cortexcloud Scan') {
                 steps {
@@ -91,15 +90,15 @@ pipeline {
                                 --header 'Content-Type: application/json' \
                                 --data-binary ./semgrep.sarif"
                         }
-                }
+                    }
+        
                 post {
                     always {
                         // Archive Semgrep SARIF report as a build artifact
                         archiveArtifacts artifacts: "./semgrep.sarif", allowEmptyArchive: true
                     }
                 }
-            }
-            }
+            }            
         }
     }
 
