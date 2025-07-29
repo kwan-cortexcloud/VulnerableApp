@@ -1,0 +1,120 @@
+// Jenkinsfile
+
+pipeline {
+    agent any // You can specify a more specific agent if needed, e.g., agent { label 'my-linux-agent' }
+
+    environment {
+        // Define your Docker registry and image details
+        CORTEX_API_CLI_KEY_ID = 'my.private.registry.com'
+        CORTEX_API_CLI_KEY = 'my-app/my-image'
+        CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' // Or a specific tag like 'v1.0.0'
+        CORTEX_CLI_VERSION = '0.13.0'
+    }
+
+    stage('Security Scans (Parallel)') {
+                // The 'parallel' block runs the nested stages concurrently.
+        parallel {
+            stage('cortexcloud Scan') {
+                steps {
+                    script {
+                        withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), 
+                                        string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {                  
+                            sh  "TOKEN_RESPONSE=$(curl --location '$CORTEX_API_URL/public_api/v1/unified-cli/image/token' \
+                                --header 'Authorization: $CORTEX_API_KEY' \
+                                --header 'x-xdr-auth-id: $CORTEX_API_KEY_ID' \
+                                --header 'Content-Type: application/json' \
+                                --data '{}')"
+                            sh "TEMP_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.token')"
+                            sh "echo 'TEMP_TOKEN=$TEMP_TOKEN'"
+                            sh "docker pull distributions.traps.paloaltonetworks.com/cli-docker/$TEMP_TOKEN/method:amd64-$CORTEX_CLI_VERSION"
+                            sh "docker tag distributions.traps.paloaltonetworks.com/cli-docker/$TEMP_TOKEN/method:amd64-$CORTEX_CLI_VERSION cortexcli:$CORTEX_CLI_VERSION"
+                            sh "docker images"
+                                      
+                            try {
+                                sh "docker run --rm -v $(Pipeline.Workspace):/home/code cortexcli:$CORTEX_CLI_VERSION \
+                                    --api-base-url $CORTEX_API_URL --api-key $CORTEX_API_KEY --api-key-id $CORTEX_API_KEY_ID \
+                                    code scan --directory /home/code --repo-id $(AZURE_REPO_OWNER)/$(Build.Repository.Name) \
+                                    --branch cicd-test \
+                                    --source CORTEX_CLI \
+                                    --create-repo-if-missing \
+                                    --upload-mode no-upload \
+                                    --output junitxml --output-file-path ccscan-report.xml "
+                            } catch (err) {
+                                // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
+                                junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
+                                throw err 
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            script {
+                                // Always publish Checkov JUnit report for visualization
+                                // This is in post always to ensure it runs even if Checkov command itself fails
+                                // (e.g., syntax error in IaC)
+                                if (fileExists("ccscan-report.xml")) {
+                                    junit "ccscan-report.xml"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            stage('Semgrep Scan (Code) and Upload to Cortex Cloud') {
+                agent {
+                    docker {
+                        image 'semgrep/semgrep:latest'
+                        // args '--entrypoint=\'\'' // Uncomment if you face entrypoint issues
+                    }
+                }
+                steps {
+                    script {
+                        // sh "mkdir -p ${REPORT_DIR}"
+                        // def semgrepReportFile = "${REPORT_DIR}/semgrep-report.json"
+                        # semgrep scan
+                        
+                        echo "Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif"
+                        try {
+                            sh "semgrep scan --sarif --sarif-output=./semgrep.sarif"
+                        } catch (err) {
+                            echo "Semgrep scan completed with findings or errors. Report available at semgrep.sarif"
+                            throw err // Re-throw to fail the pipeline
+                        }
+                    }
+                    # post scan findings to cortexcloud sarif collector
+                    script {
+                        echo "uploading sarif generated by semgrep to cortex cloud ..."
+                        withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key', variable: 'CORTEX_API_KEY'), 
+                                        string(credentialsId: 'ms-cxsiamp-cortex-collector-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
+                            curl -ifS --location "$CORTEX_API_URL/public_api/appsec/v1/collectors/687fd143d939b5726fda3c0a?repository_id=d27795e2864609c861acbc1f61c4bf19803edced85dca151823d602418481df3&branch=cicd-test" \
+                                --header "x-crtx-auth-id: $CORTEX_API_KEY_ID" \
+                                --header "Authorization: $CORTEX_API_KEY" \
+                                --header "Content-Type: application/json" \
+                                --data-binary ./semgrep.sarif
+                        }
+                }
+                post {
+                    always {
+                        // Archive Semgrep SARIF report as a build artifact
+                        archiveArtifacts artifacts: "./semgrep.sarif", allowEmptyArchive: true
+                    }
+                }
+            }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Clean up workspace after build
+            cleanWs()
+        }
+        success {
+            echo 'cortexcloud scan completed successfully!'
+        }
+        failure {
+            echo 'cortexcloud scan found issues. Please review the report.'
+        }
+    }
+}
