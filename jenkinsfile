@@ -1,7 +1,7 @@
 // Jenkinsfile
 
 pipeline {
-    agent 'kubernetes' 
+    agent any
 
     environment {
         CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' 
