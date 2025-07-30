@@ -1,7 +1,7 @@
 // Jenkinsfile
 
 pipeline {
-    agent any 
+    agent 'kubernetes' 
 
     environment {
         CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' 
@@ -17,13 +17,13 @@ pipeline {
                             withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), 
                                             string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {                  
                                 sh '''
-                                    TOKEN_RESPONSE=$(curl --location '${CORTEX_API_URL}/public_api/v1/unified-cli/image/token' \
-                                        --header 'Authorization: ${CORTEX_API_KEY}' \
-                                        --header 'x-xdr-auth-id: ${CORTEX_API_KEY_ID}' \
-                                        --header 'Content-Type: application/json' \
+                                    TOKEN_RESPONSE=$(curl --location "${CORTEX_API_URL}/public_api/v1/unified-cli/image/token" \
+                                        --header "Authorization: ${CORTEX_API_KEY}" \
+                                        --header "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+                                        --header "Content-Type: application/json" \
                                         --data '{}')
                                     TEMP_TOKEN=$(echo ${TOKEN_RESPONSE} | jq -r '.token')
-                                    echo 'TEMP_TOKEN=${TEMP_TOKEN}'
+                                    echo "TEMP_TOKEN=${TEMP_TOKEN}"
                                     docker pull distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION}
                                     docker tag distributions.traps.paloaltonetworks.com/cli-docker/${TEMP_TOKEN}/method:amd64-${CORTEX_CLI_VERSION} cortexcli:${CORTEX_CLI_VERSION}
                                     docker images
