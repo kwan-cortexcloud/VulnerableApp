@@ -48,9 +48,6 @@ pipeline {
                     post {
                         always {
                             script {
-                                // Always publish Checkov JUnit report for visualization
-                                // This is in post always to ensure it runs even if Checkov command itself fails
-                                // (e.g., syntax error in IaC)
                                 if (fileExists("ccscan-report.xml")) {
                                     junit "ccscan-report.xml"
                                 }
