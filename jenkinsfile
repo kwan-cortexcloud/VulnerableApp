@@ -11,102 +11,64 @@ pipeline {
     }
 
     stages{
-        stage('Security Scans (Parallel)'){
-            parallel {
-                stage('cortexcloud Scan') {
-                    steps {
-                        script {
-                            sh 'echo workspace=$WORKSPACE'
-                                              
-                            sh '''
-                            apt update
-                            apt install -y curl jq git
-                            '''
+        stage('cortexcloud Scan') {
+            steps {
+                script {
+                    sh 'echo workspace=$WORKSPACE'
+                                      
+                    sh '''
+                    apt update
+                    apt install -y curl jq git
+                    '''
 
-                            def response = sh(script: '''
-                                    curl --location '${env.CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
-                                      --header 'Authorization: ${env.CORTEX_API_KEY}' \
-                                      --header 'x-xdr-auth-id: ${env.CORTEX_API_KEY_ID}' \
-                                      --silent
-                                ''', returnStdout: true).trim()
-            
-                            def downloadUrl = sh(script: """echo '${response}' | jq -r '.signed_url'""", returnStdout: true).trim()
-        
-                            sh '''
-                                curl -o cortexcli '${downloadUrl}'
-                                chmod +x cortexcli
-                                ./cortexcli --version
-                            '''
+                    def response = sh(script: '''
+                            curl --location '${env.CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
+                              --header 'Authorization: ${env.CORTEX_API_KEY}' \
+                              --header 'x-xdr-auth-id: ${env.CORTEX_API_KEY_ID}' \
+                              --silent
+                        ''', returnStdout: true).trim()
+    
+                    def downloadUrl = sh(script: """echo '${response}' | jq -r '.signed_url'""", returnStdout: true).trim()
 
-                            try {
-                                unstash 'source'
-                                sh '''
-                                ./cortexcli \
-                                  --api-base-url "${env.CORTEX_API_URL}" \
-                                  --api-key "${env.CORTEX_API_KEY}" \
-                                  --api-key-id "${env.CORTEX_API_KEY_ID}" \
-                                  code scan \
-                                  --directory "\$(pwd)" \
-                                  --repo-id kwan/vulnerableApp-CLI-jenkins \
-                                  --branch cicd-test \
-                                  --source "JENKINS" \
-                                  --create-repo-if-missing --upload-mode no-upload
-                                '''
-                            } catch (err) {
-                                // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
-                                junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
-                                throw err 
-                            }
-                        }
+                    sh '''
+                        curl -o cortexcli '${downloadUrl}'
+                        chmod +x cortexcli
+                        ./cortexcli --version
+                    '''
+
+                    try {
+                        unstash 'source'
+                        sh '''
+                        ./cortexcli \
+                          --api-base-url "${env.CORTEX_API_URL}" \
+                          --api-key "${env.CORTEX_API_KEY}" \
+                          --api-key-id "${env.CORTEX_API_KEY_ID}" \
+                          code scan \
+                          --directory "\$(pwd)" \
+                          --repo-id kwan/vulnerableApp-CLI-jenkins \
+                          --branch cicd-test \
+                          --source "JENKINS" \
+                          --create-repo-if-missing --upload-mode no-upload
+                        '''
+                    } catch (err) {
+                        // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
+                        junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
+                        throw err 
                     }
-                    post {
-                        always {
-                            script {
-                                if (fileExists("ccscan-report.xml")) {
-                                    junit "ccscan-report.xml"
-                                }
-                            }
+                }
+            }
+            post {
+                always {
+                    script {
+                        if (fileExists("ccscan-report.xml")) {
+                            junit "ccscan-report.xml"
                         }
                     }
                 }
-
-                stage('Semgrep Scan (Code) and Upload to Cortex Cloud') {
-                    
-                    steps {
-                        script {
-                            try {
-                                sh '''
-                                python3 -m pip install semgrep
-                                echo "semgrep --version"
-                                semgrep --version
-                                echo "Scanning with semgrep: semgrep scan --sarif --sarif-output=semgrep.sarif"
-                                semgrep scan --sarif --sarif-output=./semgrep.sarif
-                                '''
-                            } catch (err) {
-                                sh "echo 'Semgrep scan completed with findings or errors. Report available at semgrep.sarif'"
-                                throw err // Re-throw to fail the pipeline
-                            }
-                        }
-                        // upload scan findings to cortexcloud sarif collector
-                        script {
-                            sh "echo 'uploading sarif generated by semgrep to cortex cloud ...'"                            
-                            sh "curl -ifS --location '${CORTEX_API_URL}/public_api/appsec/v1/collectors/687fd143d939b5726fda3c0a?repository_id=d27795e2864609c861acbc1f61c4bf19803edced85dca151823d602418481df3&branch=cicd-test' \
-                                --header 'x-crtx-auth-id: ${CORTEX_API_KEY_ID}' \
-                                --header 'Authorization: ${CORTEX_API_KEY}' \
-                                --header 'Content-Type: application/json' \
-                                --data-binary ./semgrep.sarif"
-                            
-                        }
-                    }                
-            
-                    post {
-                        always {
-                            // Archive Semgrep SARIF report as a build artifact
-                            archiveArtifacts artifacts: "./semgrep.sarif", allowEmptyArchive: true
-                        }
-                    }                    
-                }            
             }
         }
+     
+            
+        
     }
 }
