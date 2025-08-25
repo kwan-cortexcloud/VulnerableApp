@@ -1,7 +1,7 @@
 // Jenkinsfile
 
 pipeline {
-    agent any
+    agent { label 'jenkins-jq-agent' }:
 
     environment {
         CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' 
@@ -15,12 +15,7 @@ pipeline {
             steps {
                 script {
                     sh 'echo workspace=$WORKSPACE'
-                                      
-                    sh '''
-                    sudo apt update
-                    sudo apt install -y curl jq git
-                    '''
-
+                    
                     def response = sh(script: '''
                             curl --location '${env.CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
                               --header 'Authorization: ${env.CORTEX_API_KEY}' \
