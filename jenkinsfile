@@ -1,7 +1,11 @@
 // Jenkinsfile
 
 pipeline {
-    agent { label 'jenkins-jq-agent' }
+    agent {
+            kubernetes {
+                label 'jenkins-jq-agent' // Matches the label in your pod template
+            }
+        }
 
     environment {
         CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' 
