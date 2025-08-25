@@ -14,7 +14,7 @@ pipeline {
     stages{
         stage('cortexcloud Scan') {
             steps {
-                script 
+                script {
                     withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
 
                         sh 'echo workspace=$WORKSPACE'
