@@ -18,17 +18,17 @@ pipeline {
                     withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
 
                         sh 'echo workspace=$WORKSPACE'
-                        sh 'echo CORTEX_API_KEY_ID=$CORTEX_API_KEY_ID'
-                        def response = sh(script: '''
-                                curl --location '$CORTEX_API_URL/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
-                                  --header 'Authorization: $CORTEX_API_KEY' \
-                                  --header 'x-xdr-auth-id: $CORTEX_API_KEY_ID' \
-                                  --silent
-                            ''', returnStdout: true).trim()
-        
-                        def downloadUrl = sh(script: """echo '${response}' | jq -r '.signed_url'""", returnStdout: true).trim()
-    
+                        sh 'echo "downloading cortexcli"'
                         sh '''
+                            response=$(curl --location "$CORTEX_API_URL/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+                                  --header "Authorization: $CORTEX_API_KEY" \
+                                  --header "x-xdr-auth-id: $CORTEX_API_KEY_ID" \
+                                  --silent)
+
+                            crtx_resp=$(curl -s "$CORTEX_API_URL/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+                                        -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" -H "Authorization: ${CORTEX_API_KEY}") 
+                            crtx_url=$(echo $crtx_resp | jq -r ".signed_url") 
+                            curl -o cortexcli $crtx_url                         
                             curl -o cortexcli '${downloadUrl}'
                             chmod +x cortexcli
                             ./cortexcli --version
@@ -36,7 +36,10 @@ pipeline {
     
                         try {
                             unstash 'source'
+                            echo "Attempting to run Cortex CLI code scan..."
                             sh '''
+                            set -x # Enable shell debug output
+
                             ./cortexcli \
                               --api-base-url "$CORTEX_API_URL" \
                               --api-key "$CORTEX_API_KEY" \
@@ -47,24 +50,17 @@ pipeline {
                               --branch cicd-test \
                               --source "JENKINS" \
                               --create-repo-if-missing --upload-mode no-upload
+
+                            echo "Cortex CLI scan command finished with."
+                            set +x # Disable shell debug output
                             '''
                         } catch (err) {
-                            // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
-                            junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
-                            throw err 
+                            echo "Caught error during Cortex CLI scan: ${err}"
+                            throw err // Re-throw the error to fail the Jenkins build
                         }
                     }
                 }
-            }
-            post {
-                always {
-                    script {
-                        if (fileExists("ccscan-report.xml")) {
-                            junit "ccscan-report.xml"
-                        }
-                    }
-                }
-            }
+            }            
         }
     }
 }
