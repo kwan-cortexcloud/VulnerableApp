@@ -19,7 +19,7 @@ pipeline {
             steps {
                 script {
                     sh 'echo workspace=$WORKSPACE'
-                    
+                    sh 'echo CORTEX_API_KEY_ID=${env.CORTEX_API_KEY_ID}'
                     def response = sh(script: '''
                             curl --location '${env.CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
                               --header 'Authorization: ${env.CORTEX_API_KEY}' \
