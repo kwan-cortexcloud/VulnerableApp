@@ -34,7 +34,6 @@ pipeline {
                         '''
     
                         try {
-                            unstash 'source'
                             echo "Attempting to run Cortex CLI code scan..."
                             sh '''
                             set -x # Enable shell debug output
