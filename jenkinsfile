@@ -8,51 +8,51 @@ pipeline {
         }
 
     environment {
-        CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com' 
-        CORTEX_CLI_VERSION = '0.13.0'
-        CORTEX_API_KEY = credentials('ms-cxsiamp-cortex-cli-api-key')
-        CORTEX_API_KEY_ID = credentials('ms-cxsiamp-cortex-cli-api-key-id')
+        CORTEX_API_URL = 'https://api-ms-cxsiamp.xdr.us.paloaltonetworks.com'
     }
 
     stages{
         stage('cortexcloud Scan') {
             steps {
-                script {
-                    sh 'echo workspace=$WORKSPACE'
-                    sh 'echo CORTEX_API_KEY_ID=${env.CORTEX_API_KEY_ID}'
-                    def response = sh(script: '''
-                            curl --location '${env.CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
-                              --header 'Authorization: ${env.CORTEX_API_KEY}' \
-                              --header 'x-xdr-auth-id: ${env.CORTEX_API_KEY_ID}' \
-                              --silent
-                        ''', returnStdout: true).trim()
+                script 
+                    withCredentials([string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key', variable: 'CORTEX_API_KEY'), string(credentialsId: 'ms-cxsiamp-cortex-cli-api-key-id', variable: 'CORTEX_API_KEY_ID')]) {
+
+                        sh 'echo workspace=$WORKSPACE'
+                        sh 'echo CORTEX_API_KEY_ID=$CORTEX_API_KEY_ID'
+                        def response = sh(script: '''
+                                curl --location '$CORTEX_API_URL/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64' \
+                                  --header 'Authorization: $CORTEX_API_KEY' \
+                                  --header 'x-xdr-auth-id: $CORTEX_API_KEY_ID' \
+                                  --silent
+                            ''', returnStdout: true).trim()
+        
+                        def downloadUrl = sh(script: """echo '${response}' | jq -r '.signed_url'""", returnStdout: true).trim()
     
-                    def downloadUrl = sh(script: """echo '${response}' | jq -r '.signed_url'""", returnStdout: true).trim()
-
-                    sh '''
-                        curl -o cortexcli '${downloadUrl}'
-                        chmod +x cortexcli
-                        ./cortexcli --version
-                    '''
-
-                    try {
-                        unstash 'source'
                         sh '''
-                        ./cortexcli \
-                          --api-base-url "${env.CORTEX_API_URL}" \
-                          --api-key "${env.CORTEX_API_KEY}" \
-                          --api-key-id "${env.CORTEX_API_KEY_ID}" \
-                          code scan \
-                          --directory "\$(pwd)" \
-                          --repo-id kwan/vulnerableApp-CLI-jenkins \
-                          --branch cicd-test \
-                          --source "JENKINS" \
-                          --create-repo-if-missing --upload-mode no-upload
+                            curl -o cortexcli '${downloadUrl}'
+                            chmod +x cortexcli
+                            ./cortexcli --version
                         '''
-                    } catch (err) {
-                        // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
-                        junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
-                        throw err 
+    
+                        try {
+                            unstash 'source'
+                            sh '''
+                            ./cortexcli \
+                              --api-base-url "$CORTEX_API_URL" \
+                              --api-key "$CORTEX_API_KEY" \
+                              --api-key-id "$CORTEX_API_KEY_ID" \
+                              code scan \
+                              --directory "\$(pwd)" \
+                              --repo-id kwan/vulnerableApp-CLI-jenkins \
+                              --branch cicd-test \
+                              --source "JENKINS" \
+                              --create-repo-if-missing --upload-mode no-upload
+                            '''
+                        } catch (err) {
+                            // Publish JUnit report even if the scan fails (e.g., due to --hard-fail)
+                            junit skipPublishingChecks: true, testResults: 'ccscan-report.xml'
+                            throw err 
+                        }
                     }
                 }
             }
