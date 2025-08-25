@@ -17,8 +17,8 @@ pipeline {
                     sh 'echo workspace=$WORKSPACE'
                                       
                     sh '''
-                    apt update
-                    apt install -y curl jq git
+                    sudo apt update
+                    sudo apt install -y curl jq git
                     '''
 
                     def response = sh(script: '''
